@@ -10,6 +10,8 @@ use Illuminate\Http\Response;
 use Pterodactyl\Services\Extensions\ExtensionSettingsRegistry;
 use PterodactylMcp\Protocol\JsonRpc;
 use PterodactylMcp\Protocol\McpServer;
+use PterodactylMcp\Tools\Registry;
+use PterodactylMcp\Tools\Tool;
 
 /**
  * The Streamable HTTP transport, stateless and without server-sent events.
@@ -20,7 +22,7 @@ final class McpController
 
     public function __invoke(Request $request): JsonResponse|Response
     {
-        abort_unless((bool) ($this->settings->get('mcp')?->get('enabled') ?? true), 404);
+        abort_unless($this->enabled(), 404);
         abort_if($request->headers->has('Origin') && ! $this->sameOrigin((string) $request->header('Origin')), 403, 'Requests from other websites are not allowed.');
 
         $payload = json_decode($request->getContent(), true);
@@ -40,12 +42,33 @@ final class McpController
             return new Response('', 202);
         }
 
-        return new JsonResponse($batch ? $responses : $responses[0], 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return new JsonResponse($batch ? $responses : $responses[0], 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     public function stream(): Response
     {
         return new Response('', 405, ['Allow' => 'POST']);
+    }
+
+    /** The tools the signed-in user gets, for the account screen. */
+    public function tools(Request $request, Registry $registry): JsonResponse
+    {
+        return new JsonResponse([
+            'enabled' => $this->enabled(),
+            'version' => McpServer::version(),
+            'tools' => array_values(array_map(static fn (Tool $tool): array => [
+                'name' => $tool->name(),
+                'title' => $tool->title(),
+                'description' => $tool->description(),
+                'group' => Registry::group($tool),
+                'kind' => $tool->kind()->value,
+            ], $registry->for($request->user()))),
+        ]);
+    }
+
+    private function enabled(): bool
+    {
+        return (bool) ($this->settings->get('mcp')?->get('enabled') ?? true);
     }
 
     private function sameOrigin(string $origin): bool

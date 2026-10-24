@@ -1,10 +1,12 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { createExtensionTestHost } from '@pterodactyl/sdk/testing';
-import { setConfig } from '../config';
+import { createExtensionTestHost, type ExtensionTestHost } from '@pterodactyl/sdk/testing';
+import * as api from '../api';
 import McpScreen from './McpScreen';
 
-let host: ReturnType<typeof createExtensionTestHost> | undefined;
+vi.mock('../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api')>()), getTools: vi.fn() }));
+
+let host: ExtensionTestHost | undefined;
 
 afterEach(() => {
     cleanup();
@@ -12,21 +14,28 @@ afterEach(() => {
     host = undefined;
 });
 
-test('shows the endpoint and only the allowed tools', async () => {
-    setConfig({ allow_write_tools: false });
+const tool = (name: string, group: string, kind: api.ToolKind): api.ToolInfo => ({ name, title: name, description: `${name} does things.`, group, kind });
+
+test('shows the endpoint and the tools grouped with their kind', async () => {
+    vi.mocked(api.getTools).mockResolvedValue({
+        enabled: true,
+        version: '1.1.0',
+        tools: [tool('read_file', 'Files', 'read'), tool('delete_files', 'Files', 'destroy'), tool('send_command', 'Console', 'control')],
+    });
     host = createExtensionTestHost({ extensionId: 'mcp', prefix: 'mcp' });
     render(<McpScreen />, { wrapper: host.Wrapper });
 
     expect((await screen.findAllByText(/\/api\/client\/extensions\/mcp/)).length).toBeGreaterThan(0);
-    expect(screen.getByText('send_command')).toBeTruthy();
-    expect(screen.queryByText('write_file')).toBeNull();
+    expect(await screen.findByText('delete_files')).toBeTruthy();
+    expect(screen.getByText('Files')).toBeTruthy();
+    expect(screen.getByText('Console')).toBeTruthy();
+    expect(screen.getByText('Destructive')).toBeTruthy();
 });
 
-test('lists write tools once an administrator allows them', async () => {
-    setConfig({ allow_write_tools: true });
+test('says when an administrator turned MCP off', async () => {
+    vi.mocked(api.getTools).mockResolvedValue({ enabled: false, version: '1.1.0', tools: [] });
     host = createExtensionTestHost({ extensionId: 'mcp', prefix: 'mcp' });
     render(<McpScreen />, { wrapper: host.Wrapper });
 
-    expect(await screen.findByText('write_file')).toBeTruthy();
-    expect(screen.getByText('create_backup')).toBeTruthy();
+    expect(await screen.findByText('An administrator turned MCP off.')).toBeTruthy();
 });

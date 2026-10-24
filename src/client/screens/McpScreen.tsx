@@ -1,17 +1,6 @@
-import { CopyOnClick, PageContentBlock, PanelLink, TitledGreyBox } from '@pterodactyl/sdk';
-import { writeToolsAllowed } from '../config';
-
-const TOOLS = [
-    { name: 'list_servers', description: 'Your servers and their identifiers.' },
-    { name: 'get_server', description: 'State, usage, limits and address.' },
-    { name: 'read_console', description: 'The latest console output.', permission: 'Console access' },
-    { name: 'send_command', description: 'Run a console command.', permission: 'Send console commands' },
-    { name: 'power', description: 'Start, stop, restart or kill.', permission: 'Power actions' },
-    { name: 'list_files', description: 'Browse folders.', permission: 'List files' },
-    { name: 'read_file', description: 'Read config files and logs.', permission: 'Read file contents' },
-    { name: 'write_file', description: 'Create or change files.', permission: 'Update files', writes: true },
-    { name: 'create_backup', description: 'Start a backup.', permission: 'Create backups', writes: true },
-];
+import { useQuery } from '@tanstack/react-query';
+import { Badge, CopyOnClick, PageContentBlock, PanelLink, Spinner, TitledGreyBox, httpErrorToHuman } from '@pterodactyl/sdk';
+import { getTools, keys, type ToolInfo } from '../api';
 
 function Code({ children }: { children: string }) {
     return (
@@ -21,9 +10,52 @@ function Code({ children }: { children: string }) {
     );
 }
 
+function KindBadge({ tool }: { tool: ToolInfo }) {
+    if (tool.kind === 'destroy') return <Badge tone='danger' size='sm'>Destructive</Badge>;
+    if (tool.kind === 'write') return <Badge tone='warning' size='sm'>Changes</Badge>;
+    if (tool.kind === 'control') return <Badge tone='info' size='sm'>Control</Badge>;
+    return null;
+}
+
+function groupTools(tools: ToolInfo[]): [string, ToolInfo[]][] {
+    const groups = new Map<string, ToolInfo[]>();
+    for (const tool of tools) groups.set(tool.group, [...(groups.get(tool.group) ?? []), tool]);
+
+    return [...groups.entries()];
+}
+
+function Tools() {
+    const catalog = useQuery({ queryKey: keys.tools, queryFn: getTools });
+
+    if (catalog.isLoading) return <Spinner centered />;
+    if (catalog.isError) return <p className='mcp:text-sm mcp:text-destructive'>{httpErrorToHuman(catalog.error)}</p>;
+    if (!catalog.data!.enabled) return <p className='mcp:text-sm mcp:text-muted-foreground'>An administrator turned MCP off.</p>;
+
+    return (
+        <div className='mcp:grid mcp:gap-5'>
+            {groupTools(catalog.data!.tools).map(([group, tools]) => (
+                <section key={group}>
+                    <h3 className='mcp:mb-2 mcp:text-xs mcp:uppercase mcp:text-muted-foreground'>{group}</h3>
+                    <ul className='mcp:grid mcp:gap-2 mcp:sm:grid-cols-2'>
+                        {tools.map((tool) => (
+                            <li key={tool.name} className='mcp:rounded-sm mcp:border mcp:border-border mcp:p-3'>
+                                <p className='mcp:flex mcp:items-center mcp:gap-2 mcp:font-mono mcp:text-sm mcp:text-foreground'>
+                                    {tool.name}
+                                    <KindBadge tool={tool} />
+                                </p>
+                                <p className='mcp:mt-1 mcp:text-xs mcp:text-muted-foreground'>{tool.description}</p>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            ))}
+        </div>
+    );
+}
+
 export default function McpScreen() {
     const url = `${window.location.origin}/api/client/extensions/mcp`;
-    const json = JSON.stringify({ mcpServers: { pterodactyl: { type: 'http', url, headers: { Authorization: 'Bearer ptlc_YOUR_KEY' } } } }, null, 2);
+    const json = JSON.stringify({ mcpServers: { pterodactyl: { type: 'http', url, headers: { Authorization: 'Bearer ptlc_YOUR_KEY' }, timeout: 120000 } } }, null, 2);
 
     return (
         <PageContentBlock title='MCP'>
@@ -47,22 +79,14 @@ export default function McpScreen() {
                     <Code>{`claude mcp add --transport http pterodactyl ${url} --header "Authorization: Bearer ptlc_YOUR_KEY"`}</Code>
                 </TitledGreyBox>
                 <TitledGreyBox title='Cursor, VS Code, Claude Desktop and others'>
-                    <p className='mcp:mb-2 mcp:text-sm mcp:text-muted-foreground'>Add this to the MCP settings of your app. Apps that only connect with an OAuth login are not supported.</p>
+                    <p className='mcp:mb-2 mcp:text-sm mcp:text-muted-foreground'>
+                        Add this to the MCP settings of your app. Waiting for a restart or a backup can take up to a minute, so allow long requests. Apps that only connect with an OAuth login are not supported.
+                    </p>
                     <Code>{json}</Code>
                 </TitledGreyBox>
                 <TitledGreyBox title='Tools'>
-                    <p className='mcp:mb-3 mcp:text-sm mcp:text-muted-foreground'>The assistant acts as you, so it can only use what your server permissions allow.</p>
-                    <ul className='mcp:grid mcp:gap-2 mcp:sm:grid-cols-2'>
-                        {TOOLS.filter((tool) => !tool.writes || writeToolsAllowed()).map((tool) => (
-                            <li key={tool.name} className='mcp:rounded-sm mcp:border mcp:border-border mcp:p-3'>
-                                <p className='mcp:font-mono mcp:text-sm mcp:text-foreground'>{tool.name}</p>
-                                <p className='mcp:text-xs mcp:text-muted-foreground'>
-                                    {tool.description}
-                                    {tool.permission && ` Needs: ${tool.permission}.`}
-                                </p>
-                            </li>
-                        ))}
-                    </ul>
+                    <p className='mcp:mb-4 mcp:text-sm mcp:text-muted-foreground'>The assistant acts as you, so it can only use what your server permissions allow.</p>
+                    <Tools />
                 </TitledGreyBox>
             </div>
         </PageContentBlock>

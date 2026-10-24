@@ -4,29 +4,25 @@ declare(strict_types=1);
 
 namespace PterodactylMcp\Tools;
 
+use Pterodactyl\Exceptions\Http\Server\ServerStateConflictException;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\User;
-use PterodactylMcp\Panel\Panel;
 
+/** A tool that works on one server the user can access, with the same checks as the Client API. */
 abstract class ServerTool implements Tool
 {
-    public function __construct(protected readonly Panel $panel) {}
-
-    public function writes(): bool
+    public function kind(): Kind
     {
-        return false;
+        return Kind::Read;
     }
 
-    /** @return array<string, mixed> */
-    protected static function serverArgument(): array
+    /**
+     * Find the server and check every permission given. Unless $anyState is set, a server that is suspended,
+     * installing, restoring a backup or being transferred is refused, as the Client API does.
+     */
+    protected function server(User $user, Arguments $arguments, array $permissions = [], bool $anyState = false): Server
     {
-        return ['type' => 'string', 'description' => 'The server identifier from list_servers, such as "3b01dadb".'];
-    }
-
-    /** @param array<string, mixed> $arguments */
-    protected function server(User $user, array $arguments, ?string $permission = null): Server
-    {
-        $identifier = (string) ($arguments['server'] ?? '');
+        $identifier = $arguments->string('server', '', 64);
         $server = $identifier === '' ? null : Server::query()
             ->where(static fn ($query) => $query->where('uuidShort', $identifier)->orWhere('uuid', $identifier))
             ->first();
@@ -35,8 +31,18 @@ abstract class ServerTool implements Tool
             throw new ToolError("There is no server \"{$identifier}\" you can access. Use list_servers to see yours.");
         }
 
-        if ($permission !== null && ! $user->can($permission, $server)) {
-            throw new ToolError("You do not have the {$permission} permission on {$server->name}.");
+        foreach ($permissions as $permission) {
+            if (! $user->can($permission, $server)) {
+                throw new ToolError("You do not have the {$permission} permission on {$server->name}.");
+            }
+        }
+
+        if (! $anyState) {
+            try {
+                $server->validateCurrentState();
+            } catch (ServerStateConflictException) {
+                throw new ToolError("{$server->name} is {$this->status($server)} right now. Try again when it is done.");
+            }
         }
 
         return $server;
@@ -45,5 +51,16 @@ abstract class ServerTool implements Tool
     private static function isMember(User $user, Server $server): bool
     {
         return $user->root_admin || $server->owner_id === $user->id || $server->subusers()->where('user_id', $user->id)->exists();
+    }
+
+    private function status(Server $server): string
+    {
+        return match (true) {
+            $server->isSuspended() => 'suspended',
+            $server->node->isUnderMaintenance() => 'on a node under maintenance',
+            ! $server->isInstalled() => 'installing or its install failed',
+            $server->status === Server::STATUS_RESTORING_BACKUP => 'restoring a backup',
+            default => 'being transferred',
+        };
     }
 }

@@ -6,21 +6,22 @@ namespace PterodactylMcp\Tools;
 
 use Pterodactyl\Models\User;
 
+/**
+ * Tools live in a sub-namespace per group (Tools\Files\ReadFile); the group is shown on the account screen.
+ */
 interface Tool
 {
     public function name(): string;
+
+    public function title(): string;
 
     public function description(): string;
 
     /** @return array<string, mixed> The JSON schema of the arguments. */
     public function schema(): array;
 
-    /** Whether the tool changes anything; those are off unless an administrator allows them. */
-    public function writes(): bool;
+    public function kind(): Kind;
 
-    /**
-     * @param  array<string, mixed>  $arguments
-     * @return array<array-key, mixed> Data returned to the model as JSON.
-     */
-    public function call(User $user, array $arguments): array;
+    /** @return array<array-key, mixed> Data returned to the model as JSON. */
+    public function call(User $user, Arguments $arguments): array;
 }
