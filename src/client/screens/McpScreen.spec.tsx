@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createExtensionTestHost, type ExtensionTestHost } from '@pterodactyl/sdk/testing';
 import * as api from '../api';
 import McpScreen from './McpScreen';
@@ -38,4 +38,17 @@ test('says when an administrator turned MCP off', async () => {
     render(<McpScreen />, { wrapper: host.Wrapper });
 
     expect(await screen.findByText('An administrator turned MCP off.')).toBeTruthy();
+});
+
+test('shows one app setup at a time', async () => {
+    vi.mocked(api.getTools).mockResolvedValue({ enabled: true, version: '1.1.0', tools: [] });
+    host = createExtensionTestHost({ extensionId: 'mcp', prefix: 'mcp' });
+    render(<McpScreen />, { wrapper: host.Wrapper });
+
+    expect(await screen.findByText(/^claude mcp add/)).toBeTruthy();
+    expect(screen.queryByText(/"mcpServers"/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Other apps' }));
+    expect(screen.getByText(/"mcpServers"/)).toBeTruthy();
+    expect(screen.queryByText(/^claude mcp add/)).toBeNull();
 });

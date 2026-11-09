@@ -1,6 +1,14 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Badge, CopyOnClick, PageContentBlock, PanelLink, Spinner, TitledGreyBox, httpErrorToHuman } from '@pterodactyl/sdk';
+import { Badge, CopyOnClick, NamedIcon, PageContentBlock, PanelLink, Spinner, TitledGreyBox, httpErrorToHuman } from '@pterodactyl/sdk';
 import { getTools, keys, type ToolInfo } from '../api';
+
+type Client = 'claude-code' | 'other';
+
+const CLIENTS: { id: Client; label: string }[] = [
+    { id: 'claude-code', label: 'Claude Code' },
+    { id: 'other', label: 'Other apps' },
+];
 
 function Code({ children }: { children: string }) {
     return (
@@ -27,19 +35,23 @@ function groupTools(tools: ToolInfo[]): [string, ToolInfo[]][] {
 function Tools() {
     const catalog = useQuery({ queryKey: keys.tools, queryFn: getTools });
 
-    if (catalog.isLoading) return <Spinner centered />;
+    if (catalog.isLoading) return <Spinner centered size={Spinner.Size.LARGE} />;
     if (catalog.isError) return <p className='mcp:text-sm mcp:text-destructive'>{httpErrorToHuman(catalog.error)}</p>;
     if (!catalog.data!.enabled) return <p className='mcp:text-sm mcp:text-muted-foreground'>An administrator turned MCP off.</p>;
 
     return (
-        <div className='mcp:grid mcp:gap-5'>
+        <div className='mcp:grid mcp:gap-2'>
             {groupTools(catalog.data!.tools).map(([group, tools]) => (
-                <section key={group}>
-                    <h3 className='mcp:mb-2 mcp:text-xs mcp:uppercase mcp:text-muted-foreground'>{group}</h3>
-                    <ul className='mcp:grid mcp:gap-2 mcp:sm:grid-cols-2'>
+                <details key={group} className='mcp:group mcp:rounded-sm mcp:border mcp:border-border'>
+                    <summary className='mcp:flex mcp:cursor-pointer mcp:list-none mcp:items-center mcp:gap-2 mcp:px-3 mcp:py-2 mcp:text-sm mcp:text-foreground mcp:transition-colors mcp:hover:bg-muted mcp:[&::-webkit-details-marker]:hidden'>
+                        <span className='mcp:min-w-0 mcp:flex-1 mcp:truncate'>{group}</span>
+                        <span className='mcp:text-xs mcp:text-muted-foreground'>{tools.length}</span>
+                        <NamedIcon name='chevron-down' className='mcp:h-4 mcp:w-4 mcp:shrink-0 mcp:text-muted-foreground mcp:transition-transform mcp:group-open:rotate-180' />
+                    </summary>
+                    <ul className='mcp:grid mcp:gap-2 mcp:border-t mcp:border-border mcp:p-3 mcp:sm:grid-cols-2'>
                         {tools.map((tool) => (
-                            <li key={tool.name} className='mcp:rounded-sm mcp:border mcp:border-border mcp:p-3'>
-                                <p className='mcp:flex mcp:items-center mcp:gap-2 mcp:font-mono mcp:text-sm mcp:text-foreground'>
+                            <li key={tool.name} className='mcp:rounded-sm mcp:bg-sunken mcp:p-3'>
+                                <p className='mcp:flex mcp:flex-wrap mcp:items-center mcp:gap-2 mcp:font-mono mcp:text-sm mcp:break-all mcp:text-foreground'>
                                     {tool.name}
                                     <KindBadge tool={tool} />
                                 </p>
@@ -47,13 +59,14 @@ function Tools() {
                             </li>
                         ))}
                     </ul>
-                </section>
+                </details>
             ))}
         </div>
     );
 }
 
 export default function McpScreen() {
+    const [client, setClient] = useState<Client>('claude-code');
     const url = `${window.location.origin}/api/client/extensions/mcp`;
     const json = JSON.stringify({ mcpServers: { pterodactyl: { type: 'http', url, headers: { Authorization: 'Bearer ptlc_YOUR_KEY' }, timeout: 120000 } } }, null, 2);
 
@@ -75,14 +88,43 @@ export default function McpScreen() {
                     <p className='mcp:mt-4 mcp:mb-1 mcp:text-xs mcp:uppercase mcp:text-muted-foreground'>Endpoint</p>
                     <Code>{url}</Code>
                 </TitledGreyBox>
-                <TitledGreyBox title='Claude Code'>
-                    <Code>{`claude mcp add --transport http pterodactyl ${url} --header "Authorization: Bearer ptlc_YOUR_KEY"`}</Code>
-                </TitledGreyBox>
-                <TitledGreyBox title='Cursor, VS Code, Claude Desktop and others'>
-                    <p className='mcp:mb-2 mcp:text-sm mcp:text-muted-foreground'>
-                        Add this to the MCP settings of your app. Waiting for a restart or a backup can take up to a minute, so allow long requests. Apps that only connect with an OAuth login are not supported.
-                    </p>
-                    <Code>{json}</Code>
+                <TitledGreyBox title='Add the server'>
+                    <div role='tablist' aria-label='Assistant' className='mcp:mb-4 mcp:flex mcp:gap-2 mcp:overflow-x-auto mcp:border-b mcp:border-border mcp:text-sm'>
+                        {CLIENTS.map((tab) => (
+                            <button
+                                key={tab.id}
+                                type='button'
+                                role='tab'
+                                id={`mcp-tab-${tab.id}`}
+                                aria-selected={tab.id === client}
+                                aria-controls='mcp-client-panel'
+                                onClick={() => setClient(tab.id)}
+                                className={
+                                    tab.id === client
+                                        ? 'mcp:shrink-0 mcp:px-3 mcp:py-2 mcp:text-foreground mcp:shadow-navigation-active'
+                                        : 'mcp:shrink-0 mcp:px-3 mcp:py-2 mcp:text-muted-foreground mcp:transition-colors mcp:hover:text-foreground'
+                                }
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div role='tabpanel' id='mcp-client-panel' aria-labelledby={`mcp-tab-${client}`}>
+                        {client === 'claude-code' ? (
+                            <>
+                                <p className='mcp:mb-2 mcp:text-sm mcp:text-muted-foreground'>Run this in a terminal.</p>
+                                <Code>{`claude mcp add --transport http pterodactyl ${url} --header "Authorization: Bearer ptlc_YOUR_KEY"`}</Code>
+                            </>
+                        ) : (
+                            <>
+                                <p className='mcp:mb-2 mcp:text-sm mcp:text-muted-foreground'>
+                                    For Cursor, VS Code, Claude Desktop and others, add this to the MCP settings of your app. Waiting for a restart or a backup can take up to a minute, so allow long requests. Apps that only connect with an OAuth
+                                    login are not supported.
+                                </p>
+                                <Code>{json}</Code>
+                            </>
+                        )}
+                    </div>
                 </TitledGreyBox>
                 <TitledGreyBox title='Tools'>
                     <p className='mcp:mb-4 mcp:text-sm mcp:text-muted-foreground'>The assistant acts as you, so it can only use what your server permissions allow.</p>
