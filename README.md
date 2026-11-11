@@ -7,6 +7,8 @@
 
 Let AI assistants like Claude manage your game servers over the [Model Context Protocol](https://modelcontextprotocol.io).
 
+![Claude Code running a server through MCP](docs/screenshots/claude-code.png)
+
 ![AI Assistants page](docs/screenshots/account.png)
 
 ## Install
